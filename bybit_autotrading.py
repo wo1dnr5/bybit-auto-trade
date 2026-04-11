@@ -29,8 +29,13 @@ Bybit 레버리지 선물 자동매매 프로그램
 
 import json
 import logging
+import os
 import re
 import time
+import xml.etree.ElementTree as ET
+
+from dotenv import load_dotenv
+load_dotenv()
 from datetime import datetime, timezone
 
 import anthropic
@@ -45,10 +50,10 @@ except ImportError:
 # ──────────────────────────────────────────
 # 사용자 설정
 # ──────────────────────────────────────────
-BYBIT_API_KEY       = "YOUR_BYBIT_API_KEY"
-BYBIT_SECRET_KEY    = "YOUR_BYBIT_SECRET_KEY"
-ANTHROPIC_API_KEY   = "YOUR_ANTHROPIC_API_KEY"   # https://console.anthropic.com
-CRYPTOPANIC_API_KEY = "YOUR_CRYPTOPANIC_API_KEY"  # https://cryptopanic.com/developers/api
+BYBIT_API_KEY       = os.environ.get("BYBIT_API_KEY", "")
+BYBIT_SECRET_KEY    = os.environ.get("BYBIT_SECRET_KEY", "")
+ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
+CRYPTOPANIC_API_KEY = os.environ.get("CRYPTOPANIC_API_KEY", "")
 
 SYMBOLS        = ["BTCUSDT", "ETHUSDT"]   # 거래 심볼 목록 (추가/제거 가능)
 LEVERAGE_MIN   = 5           # 최소 레버리지 (신호 약할 때)
@@ -328,24 +333,37 @@ def get_fear_greed() -> dict:
 
 
 def fetch_news(symbol: str, count: int = NEWS_COUNT) -> list:
-    """CryptoPanic 심볼별 주요 뉴스 헤드라인 수집"""
+    """
+    CoinDesk / CoinTelegraph RSS 피드에서 뉴스 헤드라인 수집 (API 키 불필요)
+    두 소스를 합산 후 count 개 반환
+    """
     coin = "ETH" if "ETH" in symbol else "BTC"
-    try:
-        resp = requests.get(
-            "https://cryptopanic.com/api/v1/posts/",
-            params={
-                "auth_token": CRYPTOPANIC_API_KEY,
-                "currencies": coin,
-                "kind": "news",
-                "filter": "important",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return [item["title"] for item in resp.json().get("results", [])[:count]]
-    except Exception as e:
-        log.warning(f"뉴스 수집 실패 ({coin}): {e}")
-        return []
+    keyword = "ethereum" if coin == "ETH" else "bitcoin"
+
+    rss_feeds = [
+        f"https://www.coindesk.com/arc/outboundfeeds/rss/?query={keyword}",
+        "https://cointelegraph.com/rss",
+    ]
+
+    headlines = []
+    for url in rss_feeds:
+        try:
+            resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            root = ET.fromstring(resp.content)
+            for item in root.iter("item"):
+                title = item.findtext("title", "").strip()
+                if title:
+                    headlines.append(title)
+        except Exception as e:
+            log.warning(f"RSS 수집 실패 ({url}): {e}")
+
+    # 코인 키워드 포함 기사 우선, 나머지는 뒤로
+    related   = [h for h in headlines if keyword in h.lower() or coin.lower() in h.lower()]
+    unrelated = [h for h in headlines if h not in related]
+    merged    = (related + unrelated)[:count]
+    log.info(f"뉴스 수집 완료 ({coin}): {len(merged)}건")
+    return merged
 
 
 def analyze_macro(headlines: list, fear_greed: dict, symbol: str) -> dict:
