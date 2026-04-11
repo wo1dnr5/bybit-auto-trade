@@ -13,7 +13,7 @@
 [2] 추세 필터  (4시간봉 EMA50)    → LONG / SHORT
 [3] 거시경제 분석
     - Fear & Greed Index
-    - CryptoPanic 뉴스
+    - CoinDesk / CoinTelegraph RSS 뉴스
     - Claude AI 종합 판단         → LONG / SHORT / NEUTRAL
   ↓
 세 가지가 모두 같은 방향 → 진입
@@ -70,10 +70,20 @@
 
 ---
 
+## 뉴스 분석
+
+CryptoPanic 무료 API 종료(2026-04-01)로 인해 **CoinDesk / CoinTelegraph RSS 피드**로 대체했습니다.
+
+- API 키 불필요, 완전 무료
+- BTC/ETH 관련 기사 우선 정렬 후 상위 15개를 Claude AI에 전달
+- 수집 실패 시에도 봇은 계속 실행됨
+
+---
+
 ## 필요 패키지
 
 ```bash
-pip install pybit anthropic requests pandas numpy
+pip install pybit anthropic requests pandas numpy python-dotenv
 ```
 
 ---
@@ -84,20 +94,24 @@ pip install pybit anthropic requests pandas numpy
 |--------|----------|
 | Bybit API Key / Secret | Bybit → 계정 → API 관리 → 키 생성 (선물 거래 권한 필요) |
 | Anthropic API Key | [console.anthropic.com](https://console.anthropic.com) |
-| CryptoPanic API Key | [cryptopanic.com/developers/api](https://cryptopanic.com/developers/api) (무료) |
 
 ---
 
 ## 설정 방법
 
-`bybit_autotrading.py` 상단의 사용자 설정 항목을 수정합니다.
+프로젝트 폴더에 `.env` 파일을 생성하고 아래 내용을 입력합니다.
+
+```
+BYBIT_API_KEY=발급받은키
+BYBIT_SECRET_KEY=발급받은시크릿
+ANTHROPIC_API_KEY=발급받은키
+```
+
+> `.env` 파일은 `.gitignore`에 포함되어 GitHub에 올라가지 않습니다.
+
+그 외 설정은 `bybit_autotrading.py` 상단에서 수정합니다.
 
 ```python
-BYBIT_API_KEY       = "YOUR_BYBIT_API_KEY"
-BYBIT_SECRET_KEY    = "YOUR_BYBIT_SECRET_KEY"
-ANTHROPIC_API_KEY   = "YOUR_ANTHROPIC_API_KEY"
-CRYPTOPANIC_API_KEY = "YOUR_CRYPTOPANIC_API_KEY"
-
 SYMBOLS        = ["BTCUSDT", "ETHUSDT"]  # 거래 심볼
 LEVERAGE_MIN   = 5                        # 최소 레버리지
 LEVERAGE_MAX   = 10                       # 최대 레버리지
@@ -121,7 +135,7 @@ python bybit_autotrading.py
 
 - 실거래 전 반드시 `TESTNET = True`로 충분히 테스트하세요.
 - 봇 재시작 시 기존 포지션의 분할 청산 상태가 초기화됩니다.
-- **API 키를 코드에 직접 입력한 후 GitHub에 올리지 마세요.**
+- **API 키를 코드에 직접 입력하지 마세요.** 반드시 `.env` 파일을 사용하세요.
 - 암호화폐 선물 거래는 높은 레버리지로 인해 원금 손실 위험이 있습니다.
 
 ---

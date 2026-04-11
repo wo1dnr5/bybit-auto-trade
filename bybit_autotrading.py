@@ -13,18 +13,24 @@ Bybit 레버리지 선물 자동매매 프로그램
 
 [거시경제 분석]
   - Fear & Greed Index (alternative.me)
-  - CryptoPanic 주요 뉴스 헤드라인
+  - CoinDesk / CoinTelegraph RSS 뉴스 헤드라인 (API 키 불필요, 무료)
   - Claude API: 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
 
 [리스크 관리]
   - 계좌 자본의 2% 리스크 기반 포지션 사이징
+  - 증거금 상한: 잔고의 20% 이하로 수량 제한
   - 자동 스탑로스 / 테이크프로핏 (SL 2.5%, TP 5.0% / RR=1:2)
-  - 반대 신호 발생 시 포지션 청산
+  - 분할 익절: 1차 TP(50%) 지정가 주문 + 나머지 50% 반대 신호 시 청산
   - 레버리지 5~10x 동적 조절 (신호 강도 기반)
+  - 격리 마진(Isolated) 모드 사용
 ────────────────────────────────────────────────
 
+API 키 설정:
+  .env 파일에 아래 항목 입력 (코드에 직접 입력 금지)
+  BYBIT_API_KEY, BYBIT_SECRET_KEY, ANTHROPIC_API_KEY
+
 필요 패키지:
-  pip install pybit anthropic requests pandas numpy
+  pip install pybit anthropic requests pandas numpy python-dotenv
 """
 
 import json
@@ -50,10 +56,9 @@ except ImportError:
 # ──────────────────────────────────────────
 # 사용자 설정
 # ──────────────────────────────────────────
-BYBIT_API_KEY       = os.environ.get("BYBIT_API_KEY", "")
-BYBIT_SECRET_KEY    = os.environ.get("BYBIT_SECRET_KEY", "")
-ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
-CRYPTOPANIC_API_KEY = os.environ.get("CRYPTOPANIC_API_KEY", "")
+BYBIT_API_KEY     = os.environ.get("BYBIT_API_KEY", "")      # Bybit API Key
+BYBIT_SECRET_KEY  = os.environ.get("BYBIT_SECRET_KEY", "")   # Bybit Secret Key
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # https://console.anthropic.com
 
 SYMBOLS        = ["BTCUSDT", "ETHUSDT"]   # 거래 심볼 목록 (추가/제거 가능)
 LEVERAGE_MIN   = 5           # 최소 레버리지 (신호 약할 때)
