@@ -56,6 +56,7 @@ LEVERAGE_MAX   = 10          # 최대 레버리지 (신호 강할 때)
 TIMEFRAME      = "60"        # 기본 타임프레임 (분 단위): 60 = 1시간봉
 HIGHER_TF      = "240"       # 상위 타임프레임 (4시간봉) — 트렌드 필터
 RISK_PER_TRADE = 0.02        # 계좌 자본 대비 최대 허용 리스크 (2%)
+MAX_MARGIN_PCT = 0.20        # 포지션당 최대 증거금 비율 (잔고의 20%)
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%)
 TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
 NEWS_COUNT     = 15          # Claude에게 전달할 뉴스 개수
@@ -498,11 +499,12 @@ def calc_qty(balance: float, price: float, leverage: int) -> float:
     리스크 기반 포지션 사이징
     손실 허용 금액 = balance × RISK_PER_TRADE
     qty = 손실 허용액 / (진입가 × SL_PCT)
-    레버리지는 증거금(margin) 계산에만 영향을 주며 달러 손실액과 무관
+    증거금 상한 = balance × MAX_MARGIN_PCT → qty 상한 = 상한증거금 × leverage / price
     """
     risk_usdt = balance * RISK_PER_TRADE
     qty       = risk_usdt / (price * SL_PCT)
-    return max(round(qty, 3), 0.001)
+    max_qty   = (balance * MAX_MARGIN_PCT * leverage) / price
+    return round(min(qty, max_qty), 3)
 
 
 def _place_partial_tp(session: HTTP, symbol: str, side: str, half_qty: float, tp_price: float):
@@ -529,7 +531,7 @@ def _place_partial_tp(session: HTTP, symbol: str, side: str, half_qty: float, tp
 def open_long(session: HTTP, symbol: str, qty: float, price: float):
     sl      = round(price * (1 - SL_PCT), 1)
     tp1     = round(price * (1 + SL_PCT * TP_RATIO), 1)   # 1차 TP (50%)
-    half    = max(round(qty / 2, 3), 0.001)
+    half    = round(qty / 2, 3)
 
     try:
         # 진입 주문: SL만 설정 (TP는 분할 처리)
@@ -561,7 +563,7 @@ def open_long(session: HTTP, symbol: str, qty: float, price: float):
 def open_short(session: HTTP, symbol: str, qty: float, price: float):
     sl      = round(price * (1 + SL_PCT), 1)
     tp1     = round(price * (1 - SL_PCT * TP_RATIO), 1)   # 1차 TP (50%)
-    half    = max(round(qty / 2, 3), 0.001)
+    half    = round(qty / 2, 3)
 
     try:
         # 진입 주문: SL만 설정 (TP는 분할 처리)
