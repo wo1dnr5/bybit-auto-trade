@@ -73,8 +73,9 @@ MAX_MARGIN_PCT = 0.20        # 포지션당 최대 증거금 비율 (잔고의 2
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%) — 거래소 SL 주문용
 HARD_SL_PCT    = 0.035       # 하드 스탑로스 비율 (3.5%) — 봇 루프 내 강제 청산 (거래소 SL 실패 대비)
 TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
-NEWS_COUNT     = 15          # Groq에게 전달할 뉴스 개수
+NEWS_COUNT     = 5           # Groq에게 전달할 뉴스 개수
 LOOP_SEC       = 30          # 루프 주기 (초): 30 = 30초
+MACRO_CACHE_SEC = 600        # 거시경제 분석 캐싱 주기 (초): 600 = 10분
 TESTNET        = False       # True = 테스트넷 사용 (실거래 전 반드시 테스트)
 DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없음)
 
@@ -84,6 +85,11 @@ DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없
 # partial_closed: 1차 TP(50%) 청산 완료 여부
 # ──────────────────────────────────────────
 position_state: dict = {sym: {"entry_qty": 0.0, "partial_closed": False} for sym in SYMBOLS}
+
+# ──────────────────────────────────────────
+# 거시경제 분석 캐시 (10분마다 갱신, Groq 토큰 절약)
+# ──────────────────────────────────────────
+macro_cache: dict = {sym: {"data": None, "last_updated": 0.0} for sym in SYMBOLS}
 
 # ──────────────────────────────────────────
 # 로깅
@@ -729,10 +735,20 @@ def trade(session: HTTP, symbol: str):
     htf = get_htf_trend(session, symbol)
     log.info(f"[{symbol}][4시간봉] {htf}")
 
-    # ── 거시경제 분석 ──────────────────────────
-    fg        = get_fear_greed()
-    headlines = fetch_news(symbol)
-    macro     = get_macro_signal(fg, headlines, symbol)
+    # ── 거시경제 분석 (10분 캐싱) ─────────────────
+    cache     = macro_cache[symbol]
+    now_ts    = time.time()
+    if cache["data"] is None or (now_ts - cache["last_updated"]) >= MACRO_CACHE_SEC:
+        fg        = get_fear_greed()
+        headlines = fetch_news(symbol)
+        macro     = get_macro_signal(fg, headlines, symbol)
+        cache["data"]         = macro
+        cache["last_updated"] = now_ts
+        log.info(f"[{symbol}][거시경제] 캐시 갱신 (다음 갱신까지 {MACRO_CACHE_SEC//60}분)")
+    else:
+        macro     = cache["data"]
+        remaining = int(MACRO_CACHE_SEC - (now_ts - cache["last_updated"]))
+        log.info(f"[{symbol}][거시경제] 캐시 사용 중 (갱신까지 {remaining}초 남음)")
     log.info(
         f"[{symbol}][거시경제] F&G={macro['fg_value']}({macro['fg_label']}) → {macro['fg_bias']} | "
         f"Groq={macro['claude_sig']}(신뢰도 {macro['confidence']}%) | "
