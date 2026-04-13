@@ -17,7 +17,7 @@ Bybit 레버리지 선물 자동매매 프로그램
   - Groq API (Llama 3.3 70B): 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
 
 [리스크 관리]
-  - 계좌 자본의 2% 리스크 기반 포지션 사이징
+  - 계좌 자본의 1% 리스크 기반 포지션 사이징
   - 증거금 상한: 잔고의 20% 이하로 수량 제한
   - 자동 스탑로스 / 테이크프로핏 (SL 2.5%, TP 5.0% / RR=1:2)
   - 분할 익절: 1차 TP(50%) 지정가 주문 + 나머지 50% 반대 신호 시 청산
@@ -27,7 +27,7 @@ Bybit 레버리지 선물 자동매매 프로그램
 
 API 키 설정:
   .env 파일에 아래 항목 입력 (코드에 직접 입력 금지)
-  BYBIT_API_KEY, BYBIT_SECRET_KEY, GROQ_API_KEY
+  BYBIT_API_KEY, BYBIT_SECRET_KEY, GROQ_API_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 
 필요 패키지:
   pip install pybit groq requests pandas numpy python-dotenv
@@ -56,9 +56,11 @@ except ImportError:
 # ──────────────────────────────────────────
 # 사용자 설정
 # ──────────────────────────────────────────
-BYBIT_API_KEY     = os.environ.get("BYBIT_API_KEY", "")      # Bybit API Key
-BYBIT_SECRET_KEY  = os.environ.get("BYBIT_SECRET_KEY", "")   # Bybit Secret Key
-GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")        # https://console.groq.com
+BYBIT_API_KEY      = os.environ.get("BYBIT_API_KEY", "")      # Bybit API Key
+BYBIT_SECRET_KEY   = os.environ.get("BYBIT_SECRET_KEY", "")   # Bybit Secret Key
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")       # https://console.groq.com
+TELEGRAM_TOKEN     = os.environ.get("TELEGRAM_TOKEN", "")     # 텔레그램 봇 토큰
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")   # 텔레그램 Chat ID
 
 SYMBOLS        = ["ETHUSDT"]  # 거래 심볼 목록 (소액이므로 ETH만)
 LEVERAGE_MIN   = 3           # 최소 레버리지 (신호 약할 때)
@@ -93,6 +95,20 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────
+# 텔레그램 알림
+# ──────────────────────────────────────────
+def send_telegram(message: str):
+    """텔레그램 메시지 전송"""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=10)
+    except Exception as e:
+        log.warning(f"텔레그램 전송 실패: {e}")
 
 
 # ──────────────────────────────────────────
@@ -580,6 +596,13 @@ def open_long(session: HTTP, symbol: str, qty: float, price: float):
             closeOnTrigger=False,
         )
         log.info(f"[LONG 진입] qty={qty} | SL={sl:,.1f} | orderId={resp['result'].get('orderId','')}")
+        send_telegram(
+            f"📈 [LONG 진입] {symbol}\n"
+            f"가격: ${price:,.2f}\n"
+            f"수량: {qty}\n"
+            f"손절(SL): ${sl:,.1f}\n"
+            f"1차TP: ${tp1:,.1f}"
+        )
     except Exception as e:
         log.error(f"LONG 주문 실패: {e}")
         return
@@ -618,6 +641,13 @@ def open_short(session: HTTP, symbol: str, qty: float, price: float):
             closeOnTrigger=False,
         )
         log.info(f"[SHORT 진입] qty={qty} | SL={sl:,.1f} | orderId={resp['result'].get('orderId','')}")
+        send_telegram(
+            f"📉 [SHORT 진입] {symbol}\n"
+            f"가격: ${price:,.2f}\n"
+            f"수량: {qty}\n"
+            f"손절(SL): ${sl:,.1f}\n"
+            f"1차TP: ${tp1:,.1f}"
+        )
     except Exception as e:
         log.error(f"SHORT 주문 실패: {e}")
         return
@@ -647,6 +677,11 @@ def close_position(session: HTTP, symbol: str, pos: dict):
             reduceOnly=True,
         )
         log.info(f"[포지션 청산] side={side} | qty={qty} | orderId={resp['result'].get('orderId','')}")
+        send_telegram(
+            f"🔴 [포지션 청산] {symbol}\n"
+            f"방향: {side}\n"
+            f"수량: {qty}"
+        )
     except Exception as e:
         log.error(f"청산 실패: {e}")
 
@@ -731,6 +766,11 @@ def trade(session: HTTP, symbol: str):
                     f"[{symbol}][1차 TP 체결] 50% 청산 완료 "
                     f"(진입qty={entry_qty} → 현재qty={current_qty}) | "
                     f"나머지 {current_qty}개 신호 대기 중"
+                )
+                send_telegram(
+                    f"✅ [1차 TP 체결] {symbol}\n"
+                    f"50% 부분 청산 완료\n"
+                    f"남은 수량: {current_qty}"
                 )
         elif entry_qty == 0:
             state["partial_closed"] = True
