@@ -19,7 +19,8 @@ Bybit 레버리지 선물 자동매매 프로그램
 [리스크 관리]
   - 계좌 자본의 1% 리스크 기반 포지션 사이징
   - 증거금 상한: 잔고의 20% 이하로 수량 제한
-  - 자동 스탑로스 / 테이크프로핏 (SL 2.5%, TP 5.0% / RR=1:2)
+  - 거래소 스탑로스 (SL 2.5%) + 봇 루프 Hard SL (3.5% 강제 청산)
+  - 자동 테이크프로핏 (TP 5.0% / RR=1:2)
   - 분할 익절: 1차 TP(50%) 지정가 주문 + 나머지 50% 반대 신호 시 청산
   - 레버리지 3~5x 동적 조절 (신호 강도 기반)
   - 격리 마진(Isolated) 모드 사용
@@ -69,7 +70,8 @@ TIMEFRAME      = "60"        # 기본 타임프레임 (분 단위): 60 = 1시간
 HIGHER_TF      = "240"       # 상위 타임프레임 (4시간봉) — 트렌드 필터
 RISK_PER_TRADE = 0.01        # 계좌 자본 대비 최대 허용 리스크 (1%, 소액 계좌)
 MAX_MARGIN_PCT = 0.20        # 포지션당 최대 증거금 비율 (잔고의 20%)
-SL_PCT         = 0.025       # 스탑로스 비율 (2.5%)
+SL_PCT         = 0.025       # 스탑로스 비율 (2.5%) — 거래소 SL 주문용
+HARD_SL_PCT    = 0.035       # 하드 스탑로스 비율 (3.5%) — 봇 루프 내 강제 청산 (거래소 SL 실패 대비)
 TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
 NEWS_COUNT     = 15          # Groq에게 전달할 뉴스 개수
 LOOP_SEC       = 30          # 루프 주기 (초): 30 = 30초
@@ -757,6 +759,34 @@ def trade(session: HTTP, symbol: str):
     if pos:
         current_qty = float(pos["size"])
         entry_qty   = state["entry_qty"]
+
+        # ── Hard Stop Loss (봇 루프 내 강제 청산) ────────
+        # 거래소 SL 주문 실패/슬리피지 대비 보조 안전장치
+        # 롱: 현재가가 진입가 대비 HARD_SL_PCT 이상 하락 시 즉시 청산
+        # 숏: 현재가가 진입가 대비 HARD_SL_PCT 이상 상승 시 즉시 청산
+        entry = float(pos["avgPrice"])
+        hard_sl_hit = (
+            (pos["side"] == "Buy"  and price <= entry * (1 - HARD_SL_PCT)) or
+            (pos["side"] == "Sell" and price >= entry * (1 + HARD_SL_PCT))
+        )
+        if hard_sl_hit:
+            loss_pct = abs(price - entry) / entry * 100
+            log.warning(
+                f"[{symbol}][HARD SL 발동] {pos['side']} | 진입가=${entry:,.2f} | 현재가=${price:,.2f} | "
+                f"손실={loss_pct:.2f}% (임계={HARD_SL_PCT*100:.1f}%) → 강제 청산"
+            )
+            send_telegram(
+                f"🚨 [HARD SL 발동] {symbol}\n"
+                f"방향: {pos['side']}\n"
+                f"진입가: ${entry:,.2f}\n"
+                f"현재가: ${price:,.2f}\n"
+                f"손실: -{loss_pct:.2f}%\n"
+                f"→ 강제 전량 청산"
+            )
+            close_position(session, symbol, pos)
+            state["entry_qty"]      = 0.0
+            state["partial_closed"] = False
+            return
 
         # ── 1차 TP(50%) 체결 감지 ──────────────────
         if not state["partial_closed"] and entry_qty > 0:
