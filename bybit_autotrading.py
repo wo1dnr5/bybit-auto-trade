@@ -17,8 +17,7 @@ Bybit 레버리지 선물 자동매매 프로그램
   - Groq API (Llama 3.3 70B): 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
 
 [리스크 관리]
-  - 계좌 자본의 1% 리스크 기반 포지션 사이징
-  - 증거금 상한: 잔고의 20% 이하로 수량 제한
+  - 잔고 전액 증거금 사용 (레버리지 3~5x 자동 결정)
   - 거래소 스탑로스 (SL 2.5%) + 봇 루프 Hard SL (3.5% 강제 청산)
   - 자동 테이크프로핏 (TP 5.0% / RR=1:2)
   - 분할 익절: 1차 TP(50%) 지정가 주문 + 나머지 50% 반대 신호 시 청산
@@ -68,8 +67,6 @@ LEVERAGE_MIN   = 3           # 최소 레버리지 (신호 약할 때)
 LEVERAGE_MAX   = 5           # 최대 레버리지 (신호 강할 때)
 TIMEFRAME      = "60"        # 기본 타임프레임 (분 단위): 60 = 1시간봉
 HIGHER_TF      = "240"       # 상위 타임프레임 (4시간봉) — 트렌드 필터
-RISK_PER_TRADE = 0.01        # 계좌 자본 대비 최대 허용 리스크 (1%, 소액 계좌)
-MAX_MARGIN_PCT = 0.20        # 포지션당 최대 증거금 비율 (잔고의 20%)
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%) — 거래소 SL 주문용
 HARD_SL_PCT    = 0.035       # 하드 스탑로스 비율 (3.5%) — 봇 루프 내 강제 청산 (거래소 SL 실패 대비)
 TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
@@ -214,7 +211,7 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     ema50  = _ema(close, 50)
     rsi    = _rsi(close, 14)
     _, _, hist = _macd(close)
-    bbu, bbm, bbl = _bollinger(close, 20)
+    bbu, _, bbl = _bollinger(close, 20)
     atr    = _atr(df, 14)
     vol_ma = volume.rolling(20).mean()
 
@@ -227,7 +224,6 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     h       = hist.iloc[-1]
     h_prev  = hist.iloc[-2]
     bbu_v   = bbu.iloc[-1]
-    bbm_v   = bbm.iloc[-1]
     bbl_v   = bbl.iloc[-1]
     atr_v   = atr.iloc[-1]
     vol_v   = volume.iloc[-1]
@@ -238,10 +234,10 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
 
     # ① EMA 배열 — 가중치 3
     if e9 > e21 > e50 and c > e50:
-        score += 3
+        score += 2
         details["ema"] = f"정배열 (가격 > EMA50)"
     elif e9 < e21 < e50 and c < e50:
-        score -= 3
+        score -= 2
         details["ema"] = f"역배열 (가격 < EMA50)"
     elif c > e21:
         score += 1
@@ -252,13 +248,13 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["ema"] = "NEUTRAL"
 
-    # ② RSI — 가중치 2
-    if r >= 70:
-        score -= 2
-        details["rsi"] = f"과매수 {r:.1f}"
-    elif r <= 30:
-        score += 2
-        details["rsi"] = f"과매도 {r:.1f} (반등 가능)"
+    # ② RSI — 가중치 3 (LONG: 35 이하 / SHORT: 80 이상)
+    if r >= 80:
+        score -= 3
+        details["rsi"] = f"과매수 {r:.1f} (숏 진입 구간)"
+    elif r <= 35:
+        score += 3
+        details["rsi"] = f"과매도 {r:.1f} (롱 진입 구간)"
     elif r >= 55:
         score += 1
         details["rsi"] = f"강세 모멘텀 {r:.1f}"
@@ -284,21 +280,21 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["macd"] = "NEUTRAL"
 
-    # ④ 볼린저 밴드 위치 — 가중치 1
+    # ④ 볼린저 밴드 위치 — 가중치 1 (LONG: 50% 이하 / SHORT: 50% 이상)
     bb_range = bbu_v - bbl_v
     bb_pct   = (c - bbl_v) / (bb_range + 1e-10) * 100
     if c >= bbu_v:
+        score -= 2
+        details["bb"] = f"상단 돌파 (숏 구간, {bb_pct:.0f}%)"
+    elif bb_pct >= 50:
         score -= 1
-        details["bb"] = f"상단 돌파 (과열, {bb_pct:.0f}%)"
+        details["bb"] = f"상단 절반 이상 (숏 우호, {bb_pct:.0f}%)"
     elif c <= bbl_v:
+        score += 2
+        details["bb"] = f"하단 터치 (롱 구간, {bb_pct:.0f}%)"
+    elif bb_pct <= 50:
         score += 1
-        details["bb"] = f"하단 터치 (과매도, {bb_pct:.0f}%)"
-    elif c > bbm_v:
-        score += 1
-        details["bb"] = f"중간 위 ({bb_pct:.0f}%)"
-    else:
-        score -= 1
-        details["bb"] = f"중간 아래 ({bb_pct:.0f}%)"
+        details["bb"] = f"하단 절반 이하 (롱 우호, {bb_pct:.0f}%)"
 
     # ⑤ 거래량 급증 — 방향 가중치 1
     vol_ratio = vol_v / (vol_ma_v + 1e-10)
@@ -535,7 +531,7 @@ def calc_leverage(tech_score: int, macro_confidence: int) -> int:
     macro_confidence : Groq 거시 신뢰도 (0~100)
     두 지표를 0~1로 정규화해 평균 → 레버리지 매핑
     """
-    tech_norm  = min(abs(tech_score) / 9.0, 1.0)          # 0.0 ~ 1.0
+    tech_norm  = min(abs(tech_score) / 10.0, 1.0)         # 0.0 ~ 1.0
     macro_norm = min(macro_confidence / 100.0, 1.0)        # 0.0 ~ 1.0
     strength   = (tech_norm + macro_norm) / 2              # 0.0 ~ 1.0
     leverage   = LEVERAGE_MIN + round(strength * (LEVERAGE_MAX - LEVERAGE_MIN))
@@ -544,15 +540,13 @@ def calc_leverage(tech_score: int, macro_confidence: int) -> int:
 
 def calc_qty(balance: float, price: float, leverage: int) -> float:
     """
-    리스크 기반 포지션 사이징
-    손실 허용 금액 = balance × RISK_PER_TRADE
-    qty = 손실 허용액 / (진입가 × SL_PCT)
-    증거금 상한 = balance × MAX_MARGIN_PCT → qty 상한 = 상한증거금 × leverage / price
+    전체 잔고 기반 포지션 사이징
+    잔고 전액을 증거금으로 사용
+    qty = balance × leverage / price
     """
-    risk_usdt = balance * RISK_PER_TRADE
-    qty       = risk_usdt / (price * SL_PCT)
-    max_qty   = (balance * MAX_MARGIN_PCT * leverage) / price
-    return round(min(qty, max_qty), 3)
+    qty = (balance * leverage) / price
+    qty = round(qty, 3)
+    return max(qty, 0.01)  # ETHUSDT 최소 주문 수량 0.01 ETH 보정
 
 
 def _place_partial_tp(session: HTTP, symbol: str, side: str, half_qty: float, tp_price: float):
@@ -725,7 +719,7 @@ def trade(session: HTTP, symbol: str):
     # ── 기술적 분석 (1시간봉) ─────────────────
     tech = get_technical_signal(df)
     log.info(
-        f"[{symbol}][기술] 신호={tech['signal']} | 점수={tech['score']}/9 | "
+        f"[{symbol}][기술] 신호={tech['signal']} | 점수={tech['score']}/10 | "
         f"EMA={tech['details'].get('ema','')} | RSI={tech['details'].get('rsi','')} | "
         f"MACD={tech['details'].get('macd','')} | BB={tech['details'].get('bb','')} | "
         f"VOL={tech['details'].get('volume','')}"
@@ -762,13 +756,13 @@ def trade(session: HTTP, symbol: str):
         tech["signal"] == "LONG"
         and htf == "LONG"
         and macro["claude_sig"] in ("LONG", "NEUTRAL")
-        and macro["fg_value"] < 80
+        # Fear & Greed 조건 없음 — RSI/BB 기술 신호만으로 진입
     )
     want_short = (
         tech["signal"] == "SHORT"
         and htf == "SHORT"
         and macro["claude_sig"] in ("SHORT", "NEUTRAL")
-        and macro["fg_value"] > 20
+        # 숏은 Fear & Greed 조건 없음 — RSI/BB 기술 신호만으로 진입
     )
 
     # 포지션 있을 때 → 부분청산 감지 + 청산 또는 유지
