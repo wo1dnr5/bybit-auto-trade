@@ -307,7 +307,7 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     # 최종 신호
     if score >= 7:
         signal = "LONG"
-    elif score <= -3:
+    elif score <= -7:
         signal = "SHORT"
     else:
         signal = "NEUTRAL"
