@@ -7,7 +7,7 @@
 ## 전략 개요
 
 ```
-2분마다 반복
+30초마다 반복
   ↓
 [1] 기술적 분석 (1시간봉)         → LONG / SHORT / NEUTRAL
 [2] 추세 필터  (4시간봉 EMA50)    → LONG / SHORT
@@ -71,13 +71,32 @@
 
 ---
 
-## 뉴스 분석
+## 분석 데이터 소스 및 기준
 
-**CoinDesk / CoinTelegraph RSS 피드**에서 최신 뉴스를 자동 수집합니다.
+### 기술적 분석 — Bybit API (직접 계산)
 
-- API 키 불필요, 완전 무료
-- ETH 관련 기사 우선 정렬 후 상위 15개를 Groq AI에 전달
-- 수집 실패 시에도 봇은 계속 실행됨
+| 데이터 | 출처 | 판단 기준 |
+|--------|------|----------|
+| ETH 1시간봉 캔들 | Bybit API | EMA/RSI/MACD/볼린저/거래량 계산 |
+| ETH 4시간봉 캔들 | Bybit API | EMA50 위/아래로 큰 추세 판단 |
+
+### 거시경제 분석 — 외부 데이터
+
+| 데이터 | 출처 사이트 | 판단 기준 |
+|--------|------------|----------|
+| Fear & Greed Index | alternative.me | 80↑ 극단 탐욕 → 숏 경고 / 20↓ 극단 공포 → 롱 기회 |
+| ETH 뉴스 헤드라인 | CoinDesk RSS, CoinTelegraph RSS | 최신 15개 자동 수집, API 키 불필요 |
+| AI 종합 판단 | Groq API (Llama 3.3 70B) | 뉴스 + Fear&Greed 기반으로 아래 5가지 분석 |
+
+### Groq AI 분석 기준 5가지
+
+1. **연준(Fed) 정책** — 금리 인상/동결/인하 기대감
+2. **달러 강세(DXY)** — 달러 강세면 ETH 약세 압력
+3. **기관 투자자 동향** — ETF 자금 유출입, 대형 매수/매도 신호
+4. **규제/지정학 리스크** — 각국 정부 정책, 글로벌 이벤트
+5. **시장 심리** — Fear & Greed 수치 해석
+
+→ 최종적으로 `LONG / SHORT / NEUTRAL` + 신뢰도(0~100%) 반환
 
 ---
 
@@ -117,7 +136,7 @@ SYMBOLS        = ["ETHUSDT"]  # 거래 심볼
 LEVERAGE_MIN   = 3            # 최소 레버리지
 LEVERAGE_MAX   = 5            # 최대 레버리지
 RISK_PER_TRADE = 0.01         # 거래당 최대 손실 비율 (1%)
-LOOP_SEC       = 120          # 봇 반복 주기 (초)
+LOOP_SEC       = 30           # 봇 반복 주기 (초)
 TESTNET        = False        # True = 테스트넷 사용
 DRY_RUN        = False        # True = 드라이런 (실제 주문 없음)
 ```

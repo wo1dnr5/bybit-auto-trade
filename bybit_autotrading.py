@@ -14,23 +14,23 @@ Bybit 레버리지 선물 자동매매 프로그램
 [거시경제 분석]
   - Fear & Greed Index (alternative.me)
   - CoinDesk / CoinTelegraph RSS 뉴스 헤드라인 (API 키 불필요, 무료)
-  - Gemini API: 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
+  - Groq API (Llama 3.3 70B): 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
 
 [리스크 관리]
   - 계좌 자본의 2% 리스크 기반 포지션 사이징
   - 증거금 상한: 잔고의 20% 이하로 수량 제한
   - 자동 스탑로스 / 테이크프로핏 (SL 2.5%, TP 5.0% / RR=1:2)
   - 분할 익절: 1차 TP(50%) 지정가 주문 + 나머지 50% 반대 신호 시 청산
-  - 레버리지 5~10x 동적 조절 (신호 강도 기반)
+  - 레버리지 3~5x 동적 조절 (신호 강도 기반)
   - 격리 마진(Isolated) 모드 사용
 ────────────────────────────────────────────────
 
 API 키 설정:
   .env 파일에 아래 항목 입력 (코드에 직접 입력 금지)
-  BYBIT_API_KEY, BYBIT_SECRET_KEY, GEMINI_API_KEY
+  BYBIT_API_KEY, BYBIT_SECRET_KEY, GROQ_API_KEY
 
 필요 패키지:
-  pip install pybit google-generativeai requests pandas numpy python-dotenv
+  pip install pybit groq requests pandas numpy python-dotenv
 """
 
 import json
@@ -70,7 +70,7 @@ MAX_MARGIN_PCT = 0.20        # 포지션당 최대 증거금 비율 (잔고의 2
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%)
 TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
 NEWS_COUNT     = 15          # Groq에게 전달할 뉴스 개수
-LOOP_SEC       = 120         # 루프 주기 (초): 120 = 2분
+LOOP_SEC       = 30          # 루프 주기 (초): 30 = 30초
 TESTNET        = False       # True = 테스트넷 사용 (실거래 전 반드시 테스트)
 DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없음)
 
@@ -508,7 +508,7 @@ def calc_leverage(tech_score: int, macro_confidence: int) -> int:
     """
     신호 강도에 따라 레버리지 동적 결정 (LEVERAGE_MIN ~ LEVERAGE_MAX)
     tech_score   : 기술 분석 점수 (최대 ±9)
-    macro_confidence : Claude 거시 신뢰도 (0~100)
+    macro_confidence : Groq 거시 신뢰도 (0~100)
     두 지표를 0~1로 정규화해 평균 → 레버리지 매핑
     """
     tech_norm  = min(abs(tech_score) / 9.0, 1.0)          # 0.0 ~ 1.0
