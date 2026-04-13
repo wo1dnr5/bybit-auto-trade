@@ -124,13 +124,23 @@ DRY_RUN        = False        # True = 드라이런 (실제 주문 없음)
 
 ---
 
-## 실행 (Mac)
+## 실행
 
 ```bash
-cd bybit-trade
-source .venv/bin/activate
 python3 bybit_autotrading.py
 ```
+
+---
+
+## Claude → Groq 전환 이유
+
+초기에는 Claude API(Anthropic)를 사용했으나 아래 이유로 Groq으로 전환했습니다.
+
+- **Claude API**: 무료 플랜 없음, 크레딧 소진 후 유료
+- **Gemini API**: 한국 리전에서 무료 티어 할당량 0으로 제한됨
+- **Groq API**: 한국 포함 전 세계 무료 제공, 응답 속도 빠름
+
+Groq은 자체 LPU(Language Processing Unit) 칩 기반으로 오픈소스 모델(Llama 3.3 70B)을 무료로 호스팅합니다.
 
 ---
 
