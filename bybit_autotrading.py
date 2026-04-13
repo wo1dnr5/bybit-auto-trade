@@ -63,8 +63,7 @@ TELEGRAM_TOKEN     = os.environ.get("TELEGRAM_TOKEN", "")     # 텔레그램 봇
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")   # 텔레그램 Chat ID
 
 SYMBOLS        = ["ETHUSDT"]  # 거래 심볼 목록 (소액이므로 ETH만)
-LEVERAGE_MIN   = 3           # 최소 레버리지 (신호 약할 때)
-LEVERAGE_MAX   = 5           # 최대 레버리지 (신호 강할 때)
+LEVERAGE       = 4           # 고정 레버리지
 TIMEFRAME      = "60"        # 기본 타임프레임 (분 단위): 60 = 1시간봉
 HIGHER_TF      = "240"       # 상위 타임프레임 (4시간봉) — 트렌드 필터
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%) — 거래소 SL 주문용
@@ -524,18 +523,9 @@ def set_isolated_margin(session: HTTP, symbol: str, leverage: int):
         log.debug(f"격리 마진 설정 스킵 (이미 설정됨 또는 포지션 보유): {e}")
 
 
-def calc_leverage(tech_score: int, macro_confidence: int) -> int:
-    """
-    신호 강도에 따라 레버리지 동적 결정 (LEVERAGE_MIN ~ LEVERAGE_MAX)
-    tech_score   : 기술 분석 점수 (최대 ±9)
-    macro_confidence : Groq 거시 신뢰도 (0~100)
-    두 지표를 0~1로 정규화해 평균 → 레버리지 매핑
-    """
-    tech_norm  = min(abs(tech_score) / 10.0, 1.0)         # 0.0 ~ 1.0
-    macro_norm = min(macro_confidence / 100.0, 1.0)        # 0.0 ~ 1.0
-    strength   = (tech_norm + macro_norm) / 2              # 0.0 ~ 1.0
-    leverage   = LEVERAGE_MIN + round(strength * (LEVERAGE_MAX - LEVERAGE_MIN))
-    return int(leverage)
+def calc_leverage() -> int:
+    """고정 레버리지 반환"""
+    return LEVERAGE
 
 
 def calc_qty(balance: float, price: float, leverage: int) -> float:
@@ -833,14 +823,14 @@ def trade(session: HTTP, symbol: str):
 
     # 포지션 없을 때 → 신규 진입
     if want_long:
-        lev = calc_leverage(tech["score"], macro["confidence"])
+        lev = calc_leverage()
         qty = calc_qty(balance, price, lev)
         log.info(f"[{symbol}][신호] LONG 진입 | qty={qty} | price=${price:,.2f} | 레버리지={lev}x")
         set_isolated_margin(session, symbol, lev)
         open_long(session, symbol, qty, price)
 
     elif want_short:
-        lev = calc_leverage(tech["score"], macro["confidence"])
+        lev = calc_leverage()
         qty = calc_qty(balance, price, lev)
         log.info(f"[{symbol}][신호] SHORT 진입 | qty={qty} | price=${price:,.2f} | 레버리지={lev}x")
         set_isolated_margin(session, symbol, lev)
@@ -859,7 +849,7 @@ def trade(session: HTTP, symbol: str):
 def main():
     log.info("=" * 65)
     log.info("=== Bybit 레버리지 선물 자동매매 시작 ===")
-    log.info(f"심볼={SYMBOLS} | 레버리지={LEVERAGE_MIN}~{LEVERAGE_MAX}x (동적) | SL={SL_PCT*100:.1f}% | TP={SL_PCT*TP_RATIO*100:.1f}% | 루프={LOOP_SEC}s")
+    log.info(f"심볼={SYMBOLS} | 레버리지={LEVERAGE}x (고정) | SL={SL_PCT*100:.1f}% | TP={SL_PCT*TP_RATIO*100:.1f}% | 루프={LOOP_SEC}s")
     log.info(f"테스트넷: {TESTNET} | 드라이런: {DRY_RUN}")
     if DRY_RUN:
         log.info("*** DRY RUN 모드: 분석만 수행, 실제 주문 없음 ***")
