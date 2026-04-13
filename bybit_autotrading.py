@@ -551,11 +551,11 @@ def calc_qty(balance: float, price: float, leverage: int) -> float:
 
 def _place_partial_tp(session: HTTP, symbol: str, side: str, half_qty: float, tp_price: float):
     """
-    1차 TP: reduce-only 지정가 주문으로 50%만 청산
+    TP: reduce-only 지정가 주문으로 전량 청산
     side: 롱 포지션이면 "Sell", 숏 포지션이면 "Buy"
     """
     if DRY_RUN:
-        log.info(f"[DRY RUN][1차 TP 주문] 50% reduce-only 지정가 | qty={half_qty} | tp={tp_price:,.1f} | 실제 주문 없음")
+        log.info(f"[DRY RUN][TP 주문] 100% reduce-only 지정가 | qty={half_qty} | tp={tp_price:,.1f} | 실제 주문 없음")
         return
     try:
         resp = session.place_order(
@@ -568,24 +568,23 @@ def _place_partial_tp(session: HTTP, symbol: str, side: str, half_qty: float, tp
             reduceOnly=True,
             timeInForce="GTC",          # 체결될 때까지 유지
         )
-        log.info(f"[1차 TP 주문] 50% reduce-only 지정가 | qty={half_qty} | tp={tp_price:,.1f} | orderId={resp['result'].get('orderId','')}")
+        log.info(f"[TP 주문] 100% reduce-only 지정가 | qty={half_qty} | tp={tp_price:,.1f} | orderId={resp['result'].get('orderId','')}")
     except Exception as e:
-        log.error(f"1차 TP 주문 실패: {e}")
+        log.error(f"TP 주문 실패: {e}")
 
 
 def open_long(session: HTTP, symbol: str, qty: float, price: float):
     sl      = round(price * (1 - SL_PCT), 1)
-    tp1     = round(price * (1 + SL_PCT * TP_RATIO), 1)   # 1차 TP (50%)
-    half    = round(qty / 2, 3)
+    tp1     = round(price * (1 + SL_PCT * TP_RATIO), 1)   # TP 100%
 
     if DRY_RUN:
-        log.info(f"[DRY RUN][LONG 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | 1차TP={tp1:,.1f} | 실제 주문 없음")
+        log.info(f"[DRY RUN][LONG 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | TP={tp1:,.1f} | 실제 주문 없음")
         position_state[symbol]["entry_qty"]      = qty
         position_state[symbol]["partial_closed"] = False
         return
 
     try:
-        # 진입 주문: SL만 설정 (TP는 분할 처리)
+        # 진입 주문: SL만 설정 (TP는 지정가 주문으로 처리)
         resp = session.place_order(
             category="linear",
             symbol=symbol,
@@ -603,34 +602,33 @@ def open_long(session: HTTP, symbol: str, qty: float, price: float):
             f"가격: ${price:,.2f}\n"
             f"수량: {qty}\n"
             f"손절(SL): ${sl:,.1f}\n"
-            f"1차TP: ${tp1:,.1f}"
+            f"TP: ${tp1:,.1f}"
         )
     except Exception as e:
         log.error(f"LONG 주문 실패: {e}")
         return
 
-    # 1차 TP: 50%만 지정가 매도 주문
-    _place_partial_tp(session, symbol, "Sell", half, tp1)
+    # TP: 전량 지정가 매도 주문
+    _place_partial_tp(session, symbol, "Sell", qty, tp1)
 
     # 상태 기록
     position_state[symbol]["entry_qty"]      = qty
     position_state[symbol]["partial_closed"] = False
-    log.info(f"[분할매도 설정] 1차 TP={tp1:,.1f} (50% = {half}개) | 나머지 {half}개는 신호 청산 대기")
+    log.info(f"[TP 설정] TP={tp1:,.1f} (100% = {qty}개)")
 
 
 def open_short(session: HTTP, symbol: str, qty: float, price: float):
     sl      = round(price * (1 + SL_PCT), 1)
-    tp1     = round(price * (1 - SL_PCT * TP_RATIO), 1)   # 1차 TP (50%)
-    half    = round(qty / 2, 3)
+    tp1     = round(price * (1 - SL_PCT * TP_RATIO), 1)   # TP 100%
 
     if DRY_RUN:
-        log.info(f"[DRY RUN][SHORT 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | 1차TP={tp1:,.1f} | 실제 주문 없음")
+        log.info(f"[DRY RUN][SHORT 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | TP={tp1:,.1f} | 실제 주문 없음")
         position_state[symbol]["entry_qty"]      = qty
         position_state[symbol]["partial_closed"] = False
         return
 
     try:
-        # 진입 주문: SL만 설정 (TP는 분할 처리)
+        # 진입 주문: SL만 설정 (TP는 지정가 주문으로 처리)
         resp = session.place_order(
             category="linear",
             symbol=symbol,
@@ -648,19 +646,19 @@ def open_short(session: HTTP, symbol: str, qty: float, price: float):
             f"가격: ${price:,.2f}\n"
             f"수량: {qty}\n"
             f"손절(SL): ${sl:,.1f}\n"
-            f"1차TP: ${tp1:,.1f}"
+            f"TP: ${tp1:,.1f}"
         )
     except Exception as e:
         log.error(f"SHORT 주문 실패: {e}")
         return
 
-    # 1차 TP: 50%만 지정가 매수 주문
-    _place_partial_tp(session, symbol, "Buy", half, tp1)
+    # TP: 전량 지정가 매수 주문
+    _place_partial_tp(session, symbol, "Buy", qty, tp1)
 
     # 상태 기록
     position_state[symbol]["entry_qty"]      = qty
     position_state[symbol]["partial_closed"] = False
-    log.info(f"[분할매도 설정] 1차 TP={tp1:,.1f} (50% = {half}개) | 나머지 {half}개는 신호 청산 대기")
+    log.info(f"[TP 설정] TP={tp1:,.1f} (100% = {qty}개)")
 
 
 def close_position(session: HTTP, symbol: str, pos: dict):
