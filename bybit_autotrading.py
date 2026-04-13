@@ -248,8 +248,8 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["ema"] = "NEUTRAL"
 
-    # ② RSI — 가중치 3 (LONG: 35 이하 / SHORT: 80 이상)
-    if r >= 80:
+    # ② RSI — 가중치 3 (LONG: 35 이하 / SHORT: 75 이상)
+    if r >= 75:
         score -= 3
         details["rsi"] = f"과매수 {r:.1f} (숏 진입 구간)"
     elif r <= 35:
