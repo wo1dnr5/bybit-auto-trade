@@ -1,5 +1,6 @@
 annotated-types==0.7.0
-anthropic==0.93.0
+groq
+python-dotenv
 anyio==4.13.0
 certifi==2026.2.25
 charset-normalizer==3.4.7

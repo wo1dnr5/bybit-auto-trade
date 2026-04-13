@@ -14,7 +14,7 @@ Bybit 레버리지 선물 자동매매 프로그램
 [거시경제 분석]
   - Fear & Greed Index (alternative.me)
   - CoinDesk / CoinTelegraph RSS 뉴스 헤드라인 (API 키 불필요, 무료)
-  - Claude API: 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
+  - Gemini API: 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
 
 [리스크 관리]
   - 계좌 자본의 2% 리스크 기반 포지션 사이징
@@ -27,10 +27,10 @@ Bybit 레버리지 선물 자동매매 프로그램
 
 API 키 설정:
   .env 파일에 아래 항목 입력 (코드에 직접 입력 금지)
-  BYBIT_API_KEY, BYBIT_SECRET_KEY, ANTHROPIC_API_KEY
+  BYBIT_API_KEY, BYBIT_SECRET_KEY, GEMINI_API_KEY
 
 필요 패키지:
-  pip install pybit anthropic requests pandas numpy python-dotenv
+  pip install pybit google-generativeai requests pandas numpy python-dotenv
 """
 
 import json
@@ -44,7 +44,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from datetime import datetime, timezone
 
-import anthropic
+from groq import Groq
 import pandas as pd
 import requests
 
@@ -58,20 +58,21 @@ except ImportError:
 # ──────────────────────────────────────────
 BYBIT_API_KEY     = os.environ.get("BYBIT_API_KEY", "")      # Bybit API Key
 BYBIT_SECRET_KEY  = os.environ.get("BYBIT_SECRET_KEY", "")   # Bybit Secret Key
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # https://console.anthropic.com
+GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")        # https://console.groq.com
 
-SYMBOLS        = ["BTCUSDT", "ETHUSDT"]   # 거래 심볼 목록 (추가/제거 가능)
-LEVERAGE_MIN   = 5           # 최소 레버리지 (신호 약할 때)
-LEVERAGE_MAX   = 10          # 최대 레버리지 (신호 강할 때)
+SYMBOLS        = ["ETHUSDT"]  # 거래 심볼 목록 (소액이므로 ETH만)
+LEVERAGE_MIN   = 3           # 최소 레버리지 (신호 약할 때)
+LEVERAGE_MAX   = 5           # 최대 레버리지 (신호 강할 때)
 TIMEFRAME      = "60"        # 기본 타임프레임 (분 단위): 60 = 1시간봉
 HIGHER_TF      = "240"       # 상위 타임프레임 (4시간봉) — 트렌드 필터
-RISK_PER_TRADE = 0.02        # 계좌 자본 대비 최대 허용 리스크 (2%)
+RISK_PER_TRADE = 0.01        # 계좌 자본 대비 최대 허용 리스크 (1%, 소액 계좌)
 MAX_MARGIN_PCT = 0.20        # 포지션당 최대 증거금 비율 (잔고의 20%)
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%)
 TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
-NEWS_COUNT     = 15          # Claude에게 전달할 뉴스 개수
+NEWS_COUNT     = 15          # Groq에게 전달할 뉴스 개수
 LOOP_SEC       = 120         # 루프 주기 (초): 120 = 2분
 TESTNET        = False       # True = 테스트넷 사용 (실거래 전 반드시 테스트)
+DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없음)
 
 # ──────────────────────────────────────────
 # 포지션 상태 (심볼별 인메모리, 봇 재시작 시 초기화)
@@ -373,11 +374,11 @@ def fetch_news(symbol: str, count: int = NEWS_COUNT) -> list:
 
 def analyze_macro(headlines: list, fear_greed: dict, symbol: str) -> dict:
     """
-    Claude API로 거시경제 + 뉴스 종합 분석
+    Groq API로 거시경제 + 뉴스 종합 분석
     반환: {signal: LONG|SHORT|NEUTRAL, confidence: int, reasoning: str}
     """
     coin      = "이더리움(ETH)" if "ETH" in symbol else "비트코인(BTC)"
-    client    = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client    = Groq(api_key=GROQ_API_KEY)
     news_text = "\n".join(f"- {h}" for h in headlines) if headlines else "- (수집된 뉴스 없음)"
 
     prompt = f"""당신은 {coin} 선물 트레이딩을 위한 거시경제 분석 전문가입니다.
@@ -406,12 +407,12 @@ def analyze_macro(headlines: list, fear_greed: dict, symbol: str) -> dict:
 }}"""
 
     try:
-        msg  = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=400,
+        msg   = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
         )
-        text  = msg.content[0].text.strip()
+        text  = msg.choices[0].message.content.strip()
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             result = json.loads(match.group())
@@ -424,13 +425,13 @@ def analyze_macro(headlines: list, fear_greed: dict, symbol: str) -> dict:
                 "reasoning":  result.get("reasoning", ""),
             }
     except Exception as e:
-        log.warning(f"Claude 거시경제 분석 실패: {e}")
+        log.warning(f"Groq 거시경제 분석 실패: {e}")
 
     return {"signal": "NEUTRAL", "confidence": 0, "reasoning": "분석 실패"}
 
 
 def get_macro_signal(fear_greed: dict, headlines: list, symbol: str) -> dict:
-    """Fear & Greed 바이어스 + Claude 분석 결합"""
+    """Fear & Greed 바이어스 + Groq 분석 결합"""
     fgv = fear_greed["value"]
 
     # Fear & Greed 단독 해석
@@ -445,15 +446,15 @@ def get_macro_signal(fear_greed: dict, headlines: list, symbol: str) -> dict:
     else:
         fg_bias = "NEUTRAL"
 
-    claude = analyze_macro(headlines, fear_greed, symbol)
+    gemini = analyze_macro(headlines, fear_greed, symbol)
 
     return {
         "fg_value":   fgv,
         "fg_label":   fear_greed["label"],
         "fg_bias":    fg_bias,
-        "claude_sig": claude["signal"],
-        "confidence": claude["confidence"],
-        "reasoning":  claude["reasoning"],
+        "claude_sig": gemini["signal"],
+        "confidence": gemini["confidence"],
+        "reasoning":  gemini["reasoning"],
     }
 
 
@@ -535,6 +536,9 @@ def _place_partial_tp(session: HTTP, symbol: str, side: str, half_qty: float, tp
     1차 TP: reduce-only 지정가 주문으로 50%만 청산
     side: 롱 포지션이면 "Sell", 숏 포지션이면 "Buy"
     """
+    if DRY_RUN:
+        log.info(f"[DRY RUN][1차 TP 주문] 50% reduce-only 지정가 | qty={half_qty} | tp={tp_price:,.1f} | 실제 주문 없음")
+        return
     try:
         resp = session.place_order(
             category="linear",
@@ -555,6 +559,12 @@ def open_long(session: HTTP, symbol: str, qty: float, price: float):
     sl      = round(price * (1 - SL_PCT), 1)
     tp1     = round(price * (1 + SL_PCT * TP_RATIO), 1)   # 1차 TP (50%)
     half    = round(qty / 2, 3)
+
+    if DRY_RUN:
+        log.info(f"[DRY RUN][LONG 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | 1차TP={tp1:,.1f} | 실제 주문 없음")
+        position_state[symbol]["entry_qty"]      = qty
+        position_state[symbol]["partial_closed"] = False
+        return
 
     try:
         # 진입 주문: SL만 설정 (TP는 분할 처리)
@@ -588,6 +598,12 @@ def open_short(session: HTTP, symbol: str, qty: float, price: float):
     tp1     = round(price * (1 - SL_PCT * TP_RATIO), 1)   # 1차 TP (50%)
     half    = round(qty / 2, 3)
 
+    if DRY_RUN:
+        log.info(f"[DRY RUN][SHORT 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | 1차TP={tp1:,.1f} | 실제 주문 없음")
+        position_state[symbol]["entry_qty"]      = qty
+        position_state[symbol]["partial_closed"] = False
+        return
+
     try:
         # 진입 주문: SL만 설정 (TP는 분할 처리)
         resp = session.place_order(
@@ -618,6 +634,9 @@ def open_short(session: HTTP, symbol: str, qty: float, price: float):
 def close_position(session: HTTP, symbol: str, pos: dict):
     side = "Sell" if pos["side"] == "Buy" else "Buy"
     qty  = pos["size"]
+    if DRY_RUN:
+        log.info(f"[DRY RUN][포지션 청산] side={side} | qty={qty} | 실제 주문 없음")
+        return
     try:
         resp = session.place_order(
             category="linear",
@@ -679,7 +698,7 @@ def trade(session: HTTP, symbol: str):
     macro     = get_macro_signal(fg, headlines, symbol)
     log.info(
         f"[{symbol}][거시경제] F&G={macro['fg_value']}({macro['fg_label']}) → {macro['fg_bias']} | "
-        f"Claude={macro['claude_sig']}(신뢰도 {macro['confidence']}%) | "
+        f"Groq={macro['claude_sig']}(신뢰도 {macro['confidence']}%) | "
         f"근거: {macro['reasoning']}"
     )
 
@@ -752,7 +771,7 @@ def trade(session: HTTP, symbol: str):
     else:
         log.info(
             f"[{symbol}] 진입 조건 미충족 — 대기 "
-            f"(기술={tech['signal']}, 4h={htf}, 거시={macro['claude_sig']})"
+            f"(기술={tech['signal']}, 4h={htf}, 거시={macro['claude_sig']})"  # claude_sig 키명은 dict 내부용으로 유지
         )
 
 
@@ -763,7 +782,9 @@ def main():
     log.info("=" * 65)
     log.info("=== Bybit 레버리지 선물 자동매매 시작 ===")
     log.info(f"심볼={SYMBOLS} | 레버리지={LEVERAGE_MIN}~{LEVERAGE_MAX}x (동적) | SL={SL_PCT*100:.1f}% | TP={SL_PCT*TP_RATIO*100:.1f}% | 루프={LOOP_SEC}s")
-    log.info(f"테스트넷: {TESTNET}")
+    log.info(f"테스트넷: {TESTNET} | 드라이런: {DRY_RUN}")
+    if DRY_RUN:
+        log.info("*** DRY RUN 모드: 분석만 수행, 실제 주문 없음 ***")
     log.info("=" * 65)
 
     session = init_bybit()
