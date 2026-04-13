@@ -11,13 +11,15 @@
   ↓
 [1] 기술적 분석 (1시간봉)         → LONG / SHORT / NEUTRAL
 [2] 추세 필터  (4시간봉 EMA50)    → LONG / SHORT
-[3] 거시경제 분석
+[3] 거시경제 분석 (10분 캐싱)
     - Fear & Greed Index
-    - CoinDesk / CoinTelegraph RSS 뉴스
+    - CoinDesk / CoinTelegraph RSS 뉴스 (최신 5개)
     - Groq AI (Llama 3.3 70B) 종합 판단 → LONG / SHORT / NEUTRAL
+    ※ 토큰 절약을 위해 10분에 1번 호출, 나머지는 캐싱 결과 재사용
   ↓
 세 가지가 모두 같은 방향 → 진입
 반대 신호 발생 → 청산
+Hard SL 발동 (-3.5%) → 즉시 강제 청산
 ```
 
 ---
@@ -136,13 +138,17 @@ TELEGRAM_CHAT_ID=텔레그램챗ID
 그 외 설정은 `bybit_autotrading.py` 상단에서 수정합니다.
 
 ```python
-SYMBOLS        = ["ETHUSDT"]  # 거래 심볼
-LEVERAGE_MIN   = 3            # 최소 레버리지
-LEVERAGE_MAX   = 5            # 최대 레버리지
-RISK_PER_TRADE = 0.01         # 거래당 최대 손실 비율 (1%)
-LOOP_SEC       = 30           # 봇 반복 주기 (초)
-TESTNET        = False        # True = 테스트넷 사용
-DRY_RUN        = False        # True = 드라이런 (실제 주문 없음)
+SYMBOLS         = ["ETHUSDT"]  # 거래 심볼
+LEVERAGE_MIN    = 3            # 최소 레버리지
+LEVERAGE_MAX    = 5            # 최대 레버리지
+RISK_PER_TRADE  = 0.01         # 거래당 최대 손실 비율 (1%)
+SL_PCT          = 0.025        # 거래소 스탑로스 비율 (2.5%)
+HARD_SL_PCT     = 0.035        # 봇 루프 Hard SL 비율 (3.5%)
+NEWS_COUNT      = 5            # Groq에 전달할 뉴스 개수
+LOOP_SEC        = 30           # 봇 반복 주기 (초)
+MACRO_CACHE_SEC = 600          # 거시경제 분석 캐싱 주기 (초, 10분)
+TESTNET         = False        # True = 테스트넷 사용
+DRY_RUN         = False        # True = 드라이런 (실제 주문 없음)
 ```
 
 ---
