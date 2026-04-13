@@ -69,7 +69,7 @@ TIMEFRAME      = "60"        # 기본 타임프레임 (분 단위): 60 = 1시간
 HIGHER_TF      = "240"       # 상위 타임프레임 (4시간봉) — 트렌드 필터
 SL_PCT         = 0.025       # 스탑로스 비율 (2.5%) — 거래소 SL 주문용
 HARD_SL_PCT    = 0.035       # 하드 스탑로스 비율 (3.5%) — 봇 루프 내 강제 청산 (거래소 SL 실패 대비)
-TP_RATIO       = 2.0         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO
+TP_RATIO       = 1.2         # 리스크:리워드 = 1:TP_RATIO → TP = SL_PCT × TP_RATIO (2.5% × 1.2 = 3.0%)
 NEWS_COUNT     = 5           # Groq에게 전달할 뉴스 개수
 LOOP_SEC       = 30          # 루프 주기 (초): 30 = 30초
 MACRO_CACHE_SEC = 600        # 거시경제 분석 캐싱 주기 (초): 600 = 10분
