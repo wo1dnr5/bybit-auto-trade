@@ -305,9 +305,9 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
         details["volume"] = f"보통 {vol_ratio:.1f}x"
 
     # 최종 신호
-    if score >= 7:
+    if score >= 6:
         signal = "LONG"
-    elif score <= -7:
+    elif score <= -6:
         signal = "SHORT"
     else:
         signal = "NEUTRAL"
