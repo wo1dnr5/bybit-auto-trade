@@ -426,12 +426,16 @@ def analyze_macro(headlines: list, fear_greed: dict, symbol: str) -> dict:
 }}"""
 
     try:
-        msg   = client.chat.completions.create(
+        raw   = client.chat.completions.with_raw_response.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
         )
-        text  = msg.choices[0].message.content.strip()
+        remaining  = raw.headers.get("x-ratelimit-remaining-tokens", "?")
+        reset_time = raw.headers.get("x-ratelimit-reset-tokens", "?")
+        log.info(f"[Groq 토큰] 남은 일일 토큰={remaining} | 리셋까지={reset_time}")
+        msg  = raw.parse()
+        text = msg.choices[0].message.content.strip()
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             result = json.loads(match.group())
