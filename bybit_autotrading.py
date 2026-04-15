@@ -175,7 +175,7 @@ def check_telegram_commands():
                     send_telegram(
                         f"📐 기술 점수\n"
                         f"신호: {tech['signal']}\n"
-                        f"점수: {tech['score']}/12\n"
+                        f"점수: {tech['score']}/10\n"
                         f"EMA: {tech['details'].get('ema','')}\n"
                         f"RSI: {tech['details'].get('rsi','')}\n"
                         f"MACD: {tech['details'].get('macd','')}\n"
@@ -344,12 +344,12 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["ema"] = "NEUTRAL"
 
-    # ② RSI — 가중치 3 (LONG: 35 이하 / SHORT: 75 이상)
+    # ② RSI — 가중치 2 (LONG: 35 이하 / SHORT: 75 이상)
     if r >= 75:
-        score -= 3
+        score -= 2
         details["rsi"] = f"과매수 {r:.1f} (숏 진입 구간)"
     elif r <= 35:
-        score += 3
+        score += 2
         details["rsi"] = f"과매도 {r:.1f} (롱 진입 구간)"
     elif r >= 55:
         score += 1
@@ -360,12 +360,12 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["rsi"] = f"중립 {r:.1f}"
 
-    # ③ MACD 히스토그램 — 가중치 2
+    # ③ MACD 히스토그램 — 가중치 1
     if h > 0 and h > h_prev:
-        score += 2
+        score += 1
         details["macd"] = f"상승 확대 hist={h:.2f}"
     elif h < 0 and h < h_prev:
-        score -= 2
+        score -= 1
         details["macd"] = f"하락 확대 hist={h:.2f}"
     elif h > 0:
         score += 1
@@ -822,7 +822,7 @@ def trade(session: HTTP, symbol: str):
     # ── 기술적 분석 (1시간봉) ─────────────────
     tech = get_technical_signal(df)
     log.info(
-        f"[{symbol}][기술] 신호={tech['signal']} | 점수={tech['score']}/12 | "
+        f"[{symbol}][기술] 신호={tech['signal']} | 점수={tech['score']}/10 | "
         f"EMA={tech['details'].get('ema','')} | RSI={tech['details'].get('rsi','')} | "
         f"MACD={tech['details'].get('macd','')} | BB={tech['details'].get('bb','')} | "
         f"VOL={tech['details'].get('volume','')} | 일목={tech['details'].get('ichimoku','')}"
