@@ -3,26 +3,26 @@ Bybit 레버리지 선물 자동매매 프로그램
 
 전략: 차티스트 + 거시경제 복합 분석
 ────────────────────────────────────────────────
-[기술적 분석 - 차티스트 관점]
-  - EMA(9 / 21 / 50) 배열 및 가격 위치
-  - RSI(14): 과매수/과매도 + 모멘텀
-  - MACD(12/26/9): 히스토그램 방향성
-  - Bollinger Bands(20, 2σ): 변동성 + 추세
-  - 거래량 급증 확인
-  - 멀티 타임프레임(1h 기본 + 4h 트렌드 필터)
+[기술적 분석 - 1시간봉, 최대 ±10점]
+  - EMA(9/21/50) 배열 및 가격 위치       ±2점
+  - RSI(14): 35 이하 롱 / 75 이상 숏     ±2점
+  - MACD(12/26/9): 히스토그램 방향성     ±1점
+  - Bollinger Bands(20, 2σ): 50% 피벗    ±2점
+  - 일목균형표: 구름대 위/아래            ±2점
+  - 거래량 급증(1.5x↑): 방향 가중        ±1점
+  → 5점 이상 LONG / -5점 이하 SHORT
+  - 4시간봉 EMA50 추세 필터 (LONG/SHORT)
 
-[거시경제 분석]
+[거시경제 분석 - 10분 캐싱]
   - Fear & Greed Index (alternative.me)
-  - CoinDesk / CoinTelegraph RSS 뉴스 헤드라인 (API 키 불필요, 무료)
-  - Groq API (Llama 3.3 70B): 연준 정책, 달러 강세, 기관 동향, 규제 리스크 종합 분석
+  - CoinDesk / CoinTelegraph RSS 뉴스 (최신 5개)
+  - Groq API (Llama 3.3 70B): 연준, DXY, 기관, 규제, 심리 종합 분석
 
 [리스크 관리]
-  - 잔고 전액 증거금 사용 (레버리지 3~5x 자동 결정)
-  - 거래소 스탑로스 (SL 2.5%) + 봇 루프 Hard SL (3.5% 강제 청산)
-  - 자동 테이크프로핏 (TP 5.0% / RR=1:2)
-  - 분할 익절: 1차 TP(50%) 지정가 주문 + 나머지 50% 반대 신호 시 청산
-  - 레버리지 3~5x 동적 조절 (신호 강도 기반)
-  - 격리 마진(Isolated) 모드 사용
+  - 잔고 전액 증거금 사용, 레버리지 5x 고정
+  - 거래소 SL 2.0% + 봇 Hard SL 3.0%
+  - TP 3.0% 전량 지정가 청산
+  - 격리 마진(Isolated) 모드
 ────────────────────────────────────────────────
 
 API 키 설정:
@@ -74,13 +74,6 @@ LOOP_SEC       = 30          # 루프 주기 (초): 30 = 30초
 MACRO_CACHE_SEC = 600        # 거시경제 분석 캐싱 주기 (초): 600 = 10분
 TESTNET        = False       # True = 테스트넷 사용 (실거래 전 반드시 테스트)
 DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없음)
-
-# ──────────────────────────────────────────
-# 포지션 상태 (심볼별 인메모리, 봇 재시작 시 초기화)
-# entry_qty     : 진입 시 수량 (부분청산 감지용)
-# partial_closed: 1차 TP(50%) 청산 완료 여부
-# ──────────────────────────────────────────
-position_state: dict = {sym: {"entry_qty": 0.0, "partial_closed": False} for sym in SYMBOLS}
 
 # ──────────────────────────────────────────
 # 거시경제 분석 캐시 (10분마다 갱신, Groq 토큰 절약)
@@ -360,19 +353,13 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["rsi"] = f"중립 {r:.1f}"
 
-    # ③ MACD 히스토그램 — 가중치 1
-    if h > 0 and h > h_prev:
+    # ③ MACD 히스토그램 — 가중치 1 (양수=+1, 음수=-1)
+    if h > 0:
         score += 1
-        details["macd"] = f"상승 확대 hist={h:.2f}"
-    elif h < 0 and h < h_prev:
-        score -= 1
-        details["macd"] = f"하락 확대 hist={h:.2f}"
-    elif h > 0:
-        score += 1
-        details["macd"] = f"양수 hist={h:.2f}"
+        details["macd"] = f"양수 {'상승 확대 ' if h > h_prev else ''}hist={h:.2f}"
     elif h < 0:
         score -= 1
-        details["macd"] = f"음수 hist={h:.2f}"
+        details["macd"] = f"음수 {'하락 확대 ' if h < h_prev else ''}hist={h:.2f}"
     else:
         details["macd"] = "NEUTRAL"
 
@@ -684,8 +671,6 @@ def open_long(session: HTTP, symbol: str, qty: float, price: float):
 
     if DRY_RUN:
         log.info(f"[DRY RUN][LONG 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | TP={tp1:,.1f} | 실제 주문 없음")
-        position_state[symbol]["entry_qty"]      = qty
-        position_state[symbol]["partial_closed"] = False
         return
 
     try:
@@ -715,10 +700,6 @@ def open_long(session: HTTP, symbol: str, qty: float, price: float):
 
     # TP: 전량 지정가 매도 주문
     _place_partial_tp(session, symbol, "Sell", qty, tp1)
-
-    # 상태 기록
-    position_state[symbol]["entry_qty"]      = qty
-    position_state[symbol]["partial_closed"] = False
     log.info(f"[TP 설정] TP={tp1:,.1f} (100% = {qty}개)")
 
 
@@ -728,8 +709,6 @@ def open_short(session: HTTP, symbol: str, qty: float, price: float):
 
     if DRY_RUN:
         log.info(f"[DRY RUN][SHORT 진입] qty={qty} | price=${price:,.2f} | SL={sl:,.1f} | TP={tp1:,.1f} | 실제 주문 없음")
-        position_state[symbol]["entry_qty"]      = qty
-        position_state[symbol]["partial_closed"] = False
         return
 
     try:
@@ -759,10 +738,6 @@ def open_short(session: HTTP, symbol: str, qty: float, price: float):
 
     # TP: 전량 지정가 매수 주문
     _place_partial_tp(session, symbol, "Buy", qty, tp1)
-
-    # 상태 기록
-    position_state[symbol]["entry_qty"]      = qty
-    position_state[symbol]["partial_closed"] = False
     log.info(f"[TP 설정] TP={tp1:,.1f} (100% = {qty}개)")
 
 
@@ -796,7 +771,6 @@ def close_position(session: HTTP, symbol: str, pos: dict):
 # ──────────────────────────────────────────
 def trade(session: HTTP, symbol: str):
     log.info(f"── {symbol} 분석 시작 ──")
-    state = position_state[symbol]
 
     # ── 현재 상태 확인 ──────────────────────
     pos     = get_position(session, symbol)
@@ -878,8 +852,6 @@ def trade(session: HTTP, symbol: str):
     # 포지션 있을 때 → 부분청산 감지 + 청산 또는 유지
     if pos:
         current_qty = float(pos["size"])
-        entry_qty   = state["entry_qty"]
-
         # ── Hard Stop Loss (봇 루프 내 강제 청산) ────────
         # 거래소 SL 주문 실패/슬리피지 대비 보조 안전장치
         # 롱: 현재가가 진입가 대비 HARD_SL_PCT 이상 하락 시 즉시 청산
@@ -904,43 +876,17 @@ def trade(session: HTTP, symbol: str):
                 f"→ 강제 전량 청산"
             )
             close_position(session, symbol, pos)
-            state["entry_qty"]      = 0.0
-            state["partial_closed"] = False
             return
 
-        # ── 1차 TP(50%) 체결 감지 ──────────────────
-        if not state["partial_closed"] and entry_qty > 0:
-            if current_qty <= entry_qty * 0.6:
-                state["partial_closed"] = True
-                log.info(
-                    f"[{symbol}][1차 TP 체결] 50% 청산 완료 "
-                    f"(진입qty={entry_qty} → 현재qty={current_qty}) | "
-                    f"나머지 {current_qty}개 신호 대기 중"
-                )
-                send_telegram(
-                    f"✅ [1차 TP 체결] {symbol}\n"
-                    f"50% 부분 청산 완료\n"
-                    f"남은 수량: {current_qty}"
-                )
-        elif entry_qty == 0:
-            state["partial_closed"] = True
-
-        # ── 나머지 포지션 청산 조건 (반대 신호) ────
+        # ── 반대 신호 시 강제 청산 (TP 미체결 잔여 포지션 대비) ────
         if pos["side"] == "Buy" and tech["signal"] == "SHORT" and htf == "SHORT":
-            log.info(f"[{symbol}][청산] 롱 나머지 포지션 반대 신호 → 전량 청산")
+            log.info(f"[{symbol}][청산] 롱 포지션 반대 신호 → 전량 청산")
             close_position(session, symbol, pos)
-            state["entry_qty"]      = 0.0
-            state["partial_closed"] = False
         elif pos["side"] == "Sell" and tech["signal"] == "LONG" and htf == "LONG":
-            log.info(f"[{symbol}][청산] 숏 나머지 포지션 반대 신호 → 전량 청산")
+            log.info(f"[{symbol}][청산] 숏 포지션 반대 신호 → 전량 청산")
             close_position(session, symbol, pos)
-            state["entry_qty"]      = 0.0
-            state["partial_closed"] = False
         else:
-            log.info(
-                f"[{symbol}] 포지션 유지 | qty={current_qty} | "
-                f"1차TP {'완료' if state['partial_closed'] else '대기 중'}"
-            )
+            log.info(f"[{symbol}] 포지션 유지 | qty={current_qty}")
         return
 
     # 포지션 없을 때 → 신규 진입
