@@ -115,10 +115,19 @@ def send_telegram(message: str):
         log.warning(f"텔레그램 전송 실패: {e}")
 
 
+# 텔레그램 명령어용 최신 상태 캐시
+bot_status: dict = {
+    "balance":  None,   # 최근 잔고 (USDT)
+    "price":    None,   # 최근 현재가
+    "position": None,   # 최근 포지션 dict (없으면 None)
+    "tech":     None,   # 최근 기술 분석 결과
+    "macro":    None,   # 최근 거시경제 분석 결과
+}
+
 _last_update_id: int = 0
 
 def check_telegram_commands():
-    """텔레그램 메시지 폴링 — '잘 작동중이야?' 수신 시 '네.' 응답"""
+    """텔레그램 메시지 폴링 — 명령어 수신 시 자동 응답"""
     global _last_update_id
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
@@ -131,8 +140,60 @@ def check_telegram_commands():
             msg = update.get("message", {})
             text = msg.get("text", "").strip()
             chat_id = str(msg.get("chat", {}).get("id", ""))
-            if text == "잘 작동중이야?" and chat_id == TELEGRAM_CHAT_ID:
+            if chat_id != TELEGRAM_CHAT_ID:
+                continue
+
+            if text == "잘 작동중이야?":
                 send_telegram("네.")
+
+            elif text == "잔고":
+                bal = bot_status["balance"]
+                send_telegram(f"💰 잔고: ${bal:,.2f} USDT" if bal else "잔고 정보 없음")
+
+            elif text == "현재가":
+                p = bot_status["price"]
+                send_telegram(f"💹 ETH 현재가: ${p:,.2f}" if p else "현재가 정보 없음")
+
+            elif text == "포지션":
+                pos = bot_status["position"]
+                if not pos:
+                    send_telegram("📭 현재 포지션 없음")
+                else:
+                    side = "롱 📈" if pos["side"] == "Buy" else "숏 📉"
+                    send_telegram(
+                        f"📊 포지션\n"
+                        f"방향: {side}\n"
+                        f"진입가: ${float(pos['avgPrice']):,.2f}\n"
+                        f"수량: {pos['size']} ETH"
+                    )
+
+            elif text == "점수":
+                tech = bot_status["tech"]
+                if not tech:
+                    send_telegram("기술 분석 정보 없음")
+                else:
+                    send_telegram(
+                        f"📐 기술 점수\n"
+                        f"신호: {tech['signal']}\n"
+                        f"점수: {tech['score']}/10\n"
+                        f"EMA: {tech['details'].get('ema','')}\n"
+                        f"RSI: {tech['details'].get('rsi','')}\n"
+                        f"MACD: {tech['details'].get('macd','')}\n"
+                        f"BB: {tech['details'].get('bb','')}"
+                    )
+
+            elif text == "거시경제":
+                macro = bot_status["macro"]
+                if not macro:
+                    send_telegram("거시경제 분석 정보 없음")
+                else:
+                    send_telegram(
+                        f"🌍 거시경제 분석\n"
+                        f"Groq 신호: {macro['claude_sig']}\n"
+                        f"신뢰도: {macro['confidence']}%\n"
+                        f"근거: {macro['reasoning']}"
+                    )
+
     except Exception as e:
         log.warning(f"텔레그램 커맨드 확인 실패: {e}")
 
@@ -762,6 +823,13 @@ def trade(session: HTTP, symbol: str):
         f"Groq={macro['claude_sig']}(신뢰도 {macro['confidence']}%) | "
         f"근거: {macro['reasoning']}"
     )
+
+    # ── 텔레그램 명령어용 상태 업데이트 ──────────
+    bot_status["balance"]  = balance
+    bot_status["price"]    = price
+    bot_status["position"] = pos
+    bot_status["tech"]     = tech
+    bot_status["macro"]    = macro
 
     # ──────────────────────────────────────────
     # 진입 / 청산 조건 판단
