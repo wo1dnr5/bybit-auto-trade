@@ -416,9 +416,9 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
         details["ichimoku"] = "계산 불가"
 
     # 최종 신호
-    if score >= 6:
+    if score >= 5:
         signal = "LONG"
-    elif score <= -6:
+    elif score <= -5:
         signal = "SHORT"
     else:
         signal = "NEUTRAL"
