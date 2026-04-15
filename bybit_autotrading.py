@@ -175,11 +175,12 @@ def check_telegram_commands():
                     send_telegram(
                         f"📐 기술 점수\n"
                         f"신호: {tech['signal']}\n"
-                        f"점수: {tech['score']}/10\n"
+                        f"점수: {tech['score']}/12\n"
                         f"EMA: {tech['details'].get('ema','')}\n"
                         f"RSI: {tech['details'].get('rsi','')}\n"
                         f"MACD: {tech['details'].get('macd','')}\n"
-                        f"BB: {tech['details'].get('bb','')}"
+                        f"BB: {tech['details'].get('bb','')}\n"
+                        f"일목: {tech['details'].get('ichimoku','')}"
                     )
 
             elif text == "거시경제":
@@ -272,6 +273,19 @@ def _bollinger(series: pd.Series, period: int = 20, std_dev: float = 2.0):
     upper = mid + std_dev * std
     lower = mid - std_dev * std
     return upper, mid, lower
+
+
+def _ichimoku(df: pd.DataFrame):
+    """일목균형표 — 구름대(선행스팬A, B) 계산"""
+    high, low = df["high"], df["low"]
+    tenkan = (high.rolling(9).max()  + low.rolling(9).min())  / 2
+    kijun  = (high.rolling(26).max() + low.rolling(26).min()) / 2
+    span_a = (tenkan + kijun) / 2
+    span_b = (high.rolling(52).max() + low.rolling(52).min()) / 2
+    # 현재 시점의 구름대 = 26봉 전에 계산된 선행스팬
+    cloud_top    = max(span_a.iloc[-27], span_b.iloc[-27])
+    cloud_bottom = min(span_a.iloc[-27], span_b.iloc[-27])
+    return cloud_top, cloud_bottom
 
 
 def _atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
@@ -387,10 +401,24 @@ def get_technical_signal(df: pd.DataFrame) -> dict:
     else:
         details["volume"] = f"보통 {vol_ratio:.1f}x"
 
+    # ⑥ 일목균형표 — 가중치 2 (구름대 위/아래)
+    try:
+        cloud_top, cloud_bottom = _ichimoku(df)
+        if c > cloud_top:
+            score += 2
+            details["ichimoku"] = f"구름대 위 (롱 우호, 상단={cloud_top:,.1f})"
+        elif c < cloud_bottom:
+            score -= 2
+            details["ichimoku"] = f"구름대 아래 (숏 우호, 하단={cloud_bottom:,.1f})"
+        else:
+            details["ichimoku"] = f"구름대 내부 (중립)"
+    except Exception:
+        details["ichimoku"] = "계산 불가"
+
     # 최종 신호
-    if score >= 5:
+    if score >= 6:
         signal = "LONG"
-    elif score <= -5:
+    elif score <= -6:
         signal = "SHORT"
     else:
         signal = "NEUTRAL"
@@ -794,10 +822,10 @@ def trade(session: HTTP, symbol: str):
     # ── 기술적 분석 (1시간봉) ─────────────────
     tech = get_technical_signal(df)
     log.info(
-        f"[{symbol}][기술] 신호={tech['signal']} | 점수={tech['score']}/10 | "
+        f"[{symbol}][기술] 신호={tech['signal']} | 점수={tech['score']}/12 | "
         f"EMA={tech['details'].get('ema','')} | RSI={tech['details'].get('rsi','')} | "
         f"MACD={tech['details'].get('macd','')} | BB={tech['details'].get('bb','')} | "
-        f"VOL={tech['details'].get('volume','')}"
+        f"VOL={tech['details'].get('volume','')} | 일목={tech['details'].get('ichimoku','')}"
     )
 
     # ── 상위 타임프레임 트렌드 (4시간봉) ────────
