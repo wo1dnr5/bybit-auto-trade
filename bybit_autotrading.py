@@ -115,6 +115,28 @@ def send_telegram(message: str):
         log.warning(f"텔레그램 전송 실패: {e}")
 
 
+_last_update_id: int = 0
+
+def check_telegram_commands():
+    """텔레그램 메시지 폴링 — '잘 작동중이야?' 수신 시 '네.' 응답"""
+    global _last_update_id
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+        resp = requests.get(url, params={"offset": _last_update_id + 1, "timeout": 1}, timeout=5)
+        updates = resp.json().get("result", [])
+        for update in updates:
+            _last_update_id = update["update_id"]
+            msg = update.get("message", {})
+            text = msg.get("text", "").strip()
+            chat_id = str(msg.get("chat", {}).get("id", ""))
+            if text == "잘 작동중이야?" and chat_id == TELEGRAM_CHAT_ID:
+                send_telegram("네.")
+    except Exception as e:
+        log.warning(f"텔레그램 커맨드 확인 실패: {e}")
+
+
 # ──────────────────────────────────────────
 # Bybit 클라이언트 초기화
 # ──────────────────────────────────────────
@@ -872,6 +894,7 @@ def main():
         return
 
     while True:
+        check_telegram_commands()
         log.info("=" * 65)
         log.info(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC] 사이클 시작")
         for sym in SYMBOLS:
