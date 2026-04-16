@@ -140,8 +140,8 @@ def check_telegram_commands():
             if chat_id != TELEGRAM_CHAT_ID:
                 continue
 
-            if text == "잘 작동중이야?":
-                send_telegram("네.")
+            if text == "작동":
+                send_telegram("네, 작동중입니다.")
 
             elif text == "잔고":
                 bal = bot_status["balance"]
