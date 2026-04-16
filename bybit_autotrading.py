@@ -80,8 +80,8 @@ DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없
 # ──────────────────────────────────────────
 macro_cache: dict = {sym: {"data": None, "last_updated": 0.0} for sym in SYMBOLS}
 
-# 텔레그램 기술 요약 자동 전송 주기 (10분)
-TECH_REPORT_SEC = 600
+# 텔레그램 기술 요약 자동 전송 주기 (1시간)
+TECH_REPORT_SEC = 3600
 _tech_report_last: float = 0.0
 
 # ──────────────────────────────────────────
