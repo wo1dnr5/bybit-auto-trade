@@ -80,6 +80,10 @@ DRY_RUN        = False       # True = 드라이런 (분석만, 실제 주문 없
 # ──────────────────────────────────────────
 macro_cache: dict = {sym: {"data": None, "last_updated": 0.0} for sym in SYMBOLS}
 
+# 텔레그램 기술 요약 자동 전송 주기 (10분)
+TECH_REPORT_SEC = 600
+_tech_report_last: float = 0.0
+
 # ──────────────────────────────────────────
 # 로깅
 # ──────────────────────────────────────────
@@ -833,6 +837,28 @@ def trade(session: HTTP, symbol: str):
     bot_status["tech"]     = tech
     bot_status["macro"]    = macro
 
+    # ── 10분마다 기술 분석 요약 자동 전송 ────────
+    global _tech_report_last
+    if time.time() - _tech_report_last >= TECH_REPORT_SEC:
+        _tech_report_last = time.time()
+        pos_str = "없음"
+        if pos:
+            side_str = "롱 📈" if pos["side"] == "Buy" else "숏 📉"
+            pnl_v    = float(pos.get("unrealisedPnl", 0))
+            pos_str  = f"{side_str} | 진입가 ${float(pos['avgPrice']):,.2f} | PnL {pnl_v:+.2f} USDT"
+        send_telegram(
+            f"📊 [10분 기술 요약] {symbol}\n"
+            f"현재가: ${price:,.2f}\n"
+            f"신호: {tech['signal']} ({tech['score']}/10점)\n"
+            f"EMA: {tech['details'].get('ema','')}\n"
+            f"RSI: {tech['details'].get('rsi','')}\n"
+            f"MACD: {tech['details'].get('macd','')}\n"
+            f"BB: {tech['details'].get('bb','')}\n"
+            f"일목: {tech['details'].get('ichimoku','')}\n"
+            f"4시간봉: {htf}\n"
+            f"포지션: {pos_str}"
+        )
+
     # ──────────────────────────────────────────
     # 진입 / 청산 조건 판단
     # ──────────────────────────────────────────
@@ -951,5 +977,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
+    
+    
